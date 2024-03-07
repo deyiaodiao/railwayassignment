@@ -6,6 +6,7 @@
 #include "stdafx.h"
 #include <iostream>
 #include <vector>
+#include <limits>
 
 #include <random>
 #include <stack>
@@ -17,7 +18,7 @@
 using namespace std;
 
 
-const double INF = numeric_limits < double > ::max(); // 无穷大值
+//const double INF =99999999; // 无穷大值
 
 
 class Graph {
@@ -115,6 +116,7 @@ public:
                 adjMatrix[i][j] = weight;
                 adjMatrix[j][i] = weight; // 由于是无向图，对称设置权重
             }
+            adjMatrix[i][i] = 0;
         }
     }
 

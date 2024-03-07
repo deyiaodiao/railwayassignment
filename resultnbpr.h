@@ -24,6 +24,29 @@ struct Path {
     }
 };
 
+template<typename T>
+class Optional {
+private:
+    bool hasValue;
+    T value;
+
+public:
+    Optional() : hasValue(false) {}
+    Optional(const T& val) : hasValue(true), value(val) {}
+
+    bool has_value() const { return hasValue; }
+    const T& get_value() const {
+        if (!hasValue) {
+            throw std::runtime_error("Optional does not contain a value");
+        }
+        return value;
+    }
+};
+
+
+
+
+
 struct ODPaths {
     std::vector<Path> paths;
     std::vector<double> flow;
@@ -137,10 +160,12 @@ double calculate_single_OD_total_flow_times_path(const std::vector<Path>& paths,
     const std::vector<std::vector<double>>& bpr) {
     double total = 0.0;
     for (int i = 0; i < paths.size(); ++i) {
+        
         const Path& path = paths[i];
         double path_bpr = calculate_total_bpr(path.path,bpr); // 获得当前路径对应的bpr值
         // 计算当前路径流量乘以流量值的总和
         total += flow[i] * path_bpr; // 累加路径权重之和
+        //cout << flow[i] << '\t' << path_bpr << '\t' << flow[i] * path_bpr << '\t';
     }
     return total;
 }
@@ -210,11 +235,12 @@ double calculate_total_convergence(const std::vector<std::vector<ODPaths>>& resu
                 double od_denominator = calculate_single_OD_total_flow_times_path(od_paths.paths, od_paths.flow, bpr);
                 // 将当前 OD 的分子加到总的分子中
                 total_numerator += od_paths.demand * min_bpr;
+                //cout<< od_paths.demand<<'\t'<< min_bpr<<'\t'<< od_paths.demand * min_bpr<<endl;
                 // 将当前 OD 的分母加到总的分母中
                 total_denominator += od_denominator;
             }
         }
-        if (i % 100 == 0) {	std::cout  <<"i 分子： " << total_numerator << " 分母：" << total_denominator << endl;}
+        if ((i+1) % 1000 == 0) {	std::cout  <<"i 分子： " << total_numerator << " 分母：" << total_denominator << endl;}
     }
     cout << "分子： "<< total_numerator<<" 分母："<< total_denominator << endl;
     // 返回总的收敛性指标
