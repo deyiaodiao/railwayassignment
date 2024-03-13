@@ -98,7 +98,7 @@ using namespace std;
 //int M = 4;
 
 //网络节点总数
-int N = 1000;
+int N = 7000;
 //网络线路链总数
 int M = 500;
 
@@ -110,9 +110,9 @@ const int readfile =0;
 //收敛精度
 const double ConvergenceAccuracy = 0.00000001;
 //最大迭代次数
-const int MaxIte = 16;
+const int MaxIte = 100;
 
-const double step_size = 1;
+const double step_size = 0.8;
 
 //关键节点车站集合
 set<int> KeyNodes;
