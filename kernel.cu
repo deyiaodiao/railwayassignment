@@ -27,6 +27,7 @@
 #include <crtdbg.h>//to detect host memory leaks
 using namespace std;
 
+
 #define _DTH cudaMemcpyDeviceToHost
 #define _HTD cudaMemcpyHostToDevice
 
@@ -35,7 +36,7 @@ using namespace std;
 #define RANGE 997
 #define RANDOM_GSIZE 4
 #define FILE_GSIZE 8298//the number of edges in Wiki-Vote.txt if the file test is run
-#define INF (1<<25)
+#define INF (1<<30)
 #define DO_TEST_RANDOM 1
 #define DO_TEST_FROM_FILE 0
 
@@ -72,7 +73,7 @@ void _generate_result_file(bool success, unsigned int cpu_time, unsigned int gpu
 #include <fstream>
 #include <cstdlib>
 #include <ctime>
-
+#include "load_example.h"
 #include <queue>
 #include <optional>
 #include <iomanip>
@@ -86,7 +87,7 @@ void _generate_result_file(bool success, unsigned int cpu_time, unsigned int gpu
 #include <random>
 #include <omp.h>
 #include <algorithm> // 包含 std::find
-using namespace std;
+
 ////网络节点总数
 //int N = 5000;
 ////网络线路链总数
@@ -98,9 +99,12 @@ using namespace std;
 //int M = 4;
 
 //网络节点总数
-int N = 7000;
+int N = 1053;
 //网络线路链总数
 int M = 500;
+
+//更新概率
+const int update_rate = 5;
 
 //写入矩阵至csv
 const int writefile = 0;
@@ -112,7 +116,7 @@ const double ConvergenceAccuracy = 0.00000001;
 //最大迭代次数
 const int MaxIte = 100;
 
-const double step_size = 0.8;
+const double step_size = 1;
 
 //关键节点车站集合
 set<int> KeyNodes;
@@ -251,8 +255,12 @@ bool _getPath(int curEdge, int nxtEdge, vector<Piii>& path, const int* D, const 
 		return true;
 	}
 	else {//record last edge cost and move backwards
-		path.push_back(make_pair(make_pair(Dpath[curIdx], nxtEdge), D[Dpath[curIdx] * N + nxtEdge]));
-		return _getPath(curEdge, Dpath[curIdx], path, D, Dpath, N);
+		//path.push_back(make_pair(make_pair(Dpath[curIdx], nxtEdge), D[Dpath[curIdx] * N + nxtEdge]));
+
+		path.push_back(make_pair(make_pair(curEdge,Dpath[curIdx] ), D[curEdge * N + Dpath[curIdx]]));
+
+		//return _getPath(curEdge, Dpath[curIdx], path, D, Dpath, N);
+		return _getPath(Dpath[curIdx], nxtEdge, path, D, Dpath, N);
 	}
 }
 
@@ -283,24 +291,25 @@ __global__ void _Wake_GPU(int reps) {
 	if (idx >= reps)return;
 }
 
-__global__ void _GPU_Floyd_kernel(int k, int* G, int* P, int N) {//G will be the adjacency matrix, P will be path matrix
-	int col = blockIdx.x * blockDim.x + threadIdx.x;
-	if (col >= N)return;
-	int idx = N * blockIdx.y + col;
+__global__ void _GPU_Floyd_kernel(int k, int *G,int *P, int N){//G will be the adjacency matrix, P will be path matrix
+	int col=blockIdx.x*blockDim.x + threadIdx.x;
+	if(col>=N)return;
+	int idx=N*blockIdx.y+col;
 
 	__shared__ int best;
-	if (threadIdx.x == 0)
-		best = G[N * blockIdx.y + k];
+	if(threadIdx.x==0)
+		best=G[N*blockIdx.y+k];
 	__syncthreads();
-	if (best == INF)return;
-	int tmp_b = G[k * N + col];
-	if (tmp_b == INF)return;
-	int cur = best + tmp_b;
-	if (cur < G[idx]) {
-		G[idx] = cur;
-		P[idx] = k;
+	if(best==INF)return;
+	int tmp_b=G[k*N+col];
+	if(tmp_b==INF)return;
+	int cur=best+tmp_b;
+	if(cur<G[idx]){
+		G[idx]=cur;
+		P[idx]=k;
 	}
 }
+
 void _GPU_Floyd(int* H_G, int* H_Gpath, const int N) {
 	cout << "_GPU_Floyd!\n";
 	//allocate device memory and copy graph data from host
@@ -394,16 +403,7 @@ void _generate_result_file(bool success, unsigned int cpu_time, unsigned int gpu
 }
 
 
-
-
-
-
-
 //----------------------------------------------------------------------------------------------------------------------------------
-
-
-
-
 
 template<typename T>
 bool isElementInSet(const std::set<T>& mySet, const T& element) {
@@ -505,10 +505,6 @@ bool hasNegativeCycle(const std::vector<std::vector<int>>& next) {
 	return false; // 不存在负权回路
 }
 
-
-
-
-
 vector<vector<int>> floydWarshall(vector<vector<double>>& adjMatrix, int numNodes) {
 	//omp_set_num_threads(12); // 设置使用线程	
 	// // 获取当前时间点
@@ -609,7 +605,6 @@ vector<vector<int>> floydWarshall(vector<vector<double>>& adjMatrix, int numNode
 	return next;
 }
 
-
 // 写入邻接矩阵到 CSV 文件
 void writeAdjMatrixToCSV(const std::string& filename, const std::vector<std::vector<double>>& adjMatrix) {
 	std::ofstream file(filename + ".csv");
@@ -630,6 +625,28 @@ void writeAdjMatrixToCSV(const std::string& filename, const std::vector<std::vec
 		std::cerr << "Unable to open file " << filename << ".csv" << " for writing." << std::endl;
 	}
 }
+
+
+void writeNextMatrixToCSV(const std::string& filename, const std::vector<std::vector<int>>& _Next) {
+	std::ofstream file(filename + ".csv");
+	if (file.is_open()) {
+		for (const auto& row : _Next) {
+			for (size_t i = 0; i < row.size(); ++i) {
+				file << row[i];
+				if (i != row.size() - 1) {
+					file << ",";
+				}
+			}
+			file << std::endl;
+		}
+		file.close();
+		std::cout << "Adjacency matrix has been written to " << filename << ".csv" << std::endl;
+	}
+	else {
+		std::cerr << "Unable to open file " << filename << ".csv" << " for writing." << std::endl;
+	}
+}
+
 
 // 从 CSV 文件中读取邻接矩阵
 std::vector<std::vector<double>> readAdjMatrixFromCSV(const std::string& filename) {
@@ -654,7 +671,6 @@ std::vector<std::vector<double>> readAdjMatrixFromCSV(const std::string& filenam
 	}
 	return adjMatrix;
 }
-
 
 std::vector<std::vector<Path>> getAllPaths(const std::vector<std::vector<int>>& next) {
 	int numNodes = next.size();
@@ -707,17 +723,96 @@ Optional<Path> getShortestPath(const std::vector<std::vector<int>>& next, int sr
 }
 
 
-void computeAllOrNothing(std::vector<std::vector<ODPaths>>& ResultODPaths, const std::vector<std::vector<int>>& ReducedNext, int N) {
+Optional<Path> getShortestPathGPU(const std::vector<std::vector<int>>& next,
+	std::vector<std::vector<double>>& _adjMatrix, 
+	int src, int dest) {
+	std::vector<int> path;
+
+	std::vector<int> reverse_path;
+	int source = src;
+	int destination = dest;
+
+	while (source != destination) {
+		if (_adjMatrix[source][next[source][destination]] < INF) {
+			path.push_back(source);
+			source = next[source][destination];
+		}
+		//std::cout << "--> " << destination << std::endl;
+		if (_adjMatrix[next[source][destination]][destination] < INF) {
+			reverse_path.push_back(destination);
+			destination = next[source][destination];
+		}
+		if (source == -1) {
+			// 如果没有路径连接源节点和目标节点，则返回空
+			return Optional<Path>();
+		}
+		if (next[source][destination] == destination) {
+			path.push_back(source);
+			reverse_path.push_back(destination);
+			break;
+			// 如果没有路径连接源节点和目标节点，则返回空
+			//return Optional<Path>();
+		}
+		if (_adjMatrix[next[source][destination]][destination] >= INF
+			&& _adjMatrix[source][next[source][destination]] >=INF) {
+			Optional<Path> oppath1= getShortestPathGPU(next, _adjMatrix, source, next[source][destination]);
+			Optional<Path> oppath2 = getShortestPathGPU(next, _adjMatrix, next[source][destination], destination);
+			if (oppath1.has_value() && oppath2.has_value())
+				// 修改 ResultODPaths 的 paths 和 flow
+			{
+				std::vector<int> path1 = oppath1.get_value().path;
+				std::vector<int> path2 = oppath2.get_value().path;
+				path.insert(path.end(), path1.begin(), path1.end());
+				path.insert(path.end(), path2.begin() + 1, path2.end());
+			}
+			else {
+				return Optional<Path>();
+			}
+			break;
+			// 如果没有路径连接源节点和目标节点，则返回空
+			//return Optional<Path>();
+		}
+	}
+
+	std::reverse(reverse_path.begin(), reverse_path.end());
+
+	// 将第二个vector添加到第一个vector末尾
+	path.insert(path.end(), reverse_path.begin(), reverse_path.end());
+
+	for (size_t i = 0; i < path.size()-1; ++i) {
+		if (_adjMatrix[path[i]][path[i + 1]] >= INF) {
+			cout << path[i] << "\t" << path[i + 1] << "\tINF link\t" << src <<"\t"<<dest << endl;
+		}
+	}
+
+
+	// 存储路径到结构体 Path 中
+	Path p;
+	p.path = path;
+
+	return Optional<Path>(p);
+}
+
+
+
+void computeAllOrNothing(std::vector<std::vector<ODPaths>>& ResultODPaths,
+	const std::vector<std::vector<int>>& ReducedNext, 
+	std::vector<std::vector<double>>& _adjMatrix,
+	int N) {
 	// 遍历所有源点和目标点
 	for (int i = 0; i < N; ++i) {
-		if (i % 1000 == 0) {
+		if (i % 100 == 0) {
 			std::cout << "AON: " << i << std::endl;
 		}
 		//std::cout << "AON: " << i << std::endl;
 		for (int j = 0; j < N; ++j) {
 			// 计算最短路径
 			if (i != j && ReducedNext[i][j] != -1) {
-				Optional<Path> shortestPath = getShortestPath(ReducedNext, i, j);
+				//Optional<Path> shortestPath = getShortestPath(ReducedNext, i, j);
+				//if (i == 2 && j == 59) {
+				//	int dafn = 0; 
+				//}
+				Optional<Path> shortestPath = getShortestPathGPU(ReducedNext, _adjMatrix, i, j);
 				if (shortestPath.has_value())
 				// 修改 ResultODPaths 的 paths 和 flow
 				{
@@ -731,7 +826,7 @@ void computeAllOrNothing(std::vector<std::vector<ODPaths>>& ResultODPaths, const
 }
 
 
-
+//需保证矩阵中最大值为INF
 vector<vector<int>> _gpu_fw_apsp(std::vector<std::vector<double>>& _adjMatrix,int _N) {
 
 
@@ -747,9 +842,18 @@ vector<vector<int>> _gpu_fw_apsp(std::vector<std::vector<double>>& _adjMatrix,in
 	int* D_Gpath = (int*)malloc(NumBytes);
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < N; ++j) {
-			//D_G[i * N + j] = _adjMatrix[i][j]*1000;
-			D_G[i * N + j] = _adjMatrix[i][j];
-			D_Gpath[i * N + j] = j;
+			if(_adjMatrix[i][j]!= INF){ 
+				D_G[i * N + j] = _adjMatrix[i][j] * 1000; 
+				D_Gpath[i * N + j] = j;
+			}
+			else { 
+				D_G[i * N + j] = INF; 
+				D_Gpath[i * N + j] = -1;	
+			}
+			//D_Gpath[i * N + j] = -1;
+			// 
+			//D_G[i * N + j] = _adjMatrix[i][j];
+			
 		}
 	}
 	_Wake_GPU << <1, BLOCK_SIZE >> > (32);
@@ -766,6 +870,9 @@ vector<vector<int>> _gpu_fw_apsp(std::vector<std::vector<double>>& _adjMatrix,in
 		}
 	}
 	
+	//_get_full_paths(D_G, D_Gpath, N);//find out exact step-by-step shortest paths between vertices(if such a path exists)
+
+
 	free(D_G);
 	free(D_Gpath);
 
@@ -794,7 +901,30 @@ vector<vector<int>> _gpu_fw_apsp(std::vector<std::vector<double>>& _adjMatrix,in
 
 int main()
 {
+	//vector<vector<double>> matrix01 = readAdjMatrixFromCSV(to_string(N) + "GPUMLBPR01");
+	//vector<vector<double>> matrix02 = readAdjMatrixFromCSV(to_string(N) + "GPUMLBPR02");
+	//vector<vector<double>> matrix03 = readAdjMatrixFromCSV(to_string(N) + "GPUMLBPR03");
+	//vector<vector<double>> matrix04 = readAdjMatrixFromCSV(to_string(N) + "GPUMLBPR04");
+	//vector<vector<double>> matrix05 = readAdjMatrixFromCSV(to_string(N) + "GPUMLBPR05");
 
+	//vector<vector<double>> matrix06 = readAdjMatrixFromCSV(to_string(N) + "GPUMLNEXT01");
+	//vector<vector<double>> matrix07 = readAdjMatrixFromCSV(to_string(N) + "GPUMLNEXT02");
+	//vector<vector<double>> matrix08 = readAdjMatrixFromCSV(to_string(N) + "GPUMLNEXT03");
+	//vector<vector<double>> matrix09 = readAdjMatrixFromCSV(to_string(N) + "GPUMLNEXT04");
+	//vector<vector<double>> matrix10 = readAdjMatrixFromCSV(to_string(N) + "GPUMLNEXT05");
+	//for (int i = 0; i < N; ++i) {
+	//	for (int j = 0; j < N; ++j) {
+	//		//cout << i<<"\t" << j <<endl;
+	//		if (std::fabs(matrix02[i][j] - matrix01[i][j]) > 1e-19) { std::cout << i << "2\t" << j << "\t" << matrix02[i][j] << "\t" << matrix01[i][j] << std::endl; }
+	//		if (std::fabs(matrix03[i][j] - matrix01[i][j]) > 1e-19) { std::cout << i << "3\t" << j << "\t" << matrix03[i][j] << "\t" << matrix01[i][j] << std::endl; }
+	//		if (std::fabs(matrix04[i][j] - matrix01[i][j]) > 1e-19) { std::cout << i << "4\t" << j << "\t" << matrix04[i][j] << "\t" << matrix01[i][j] << std::endl; }
+	//		if (std::fabs(matrix05[i][j] - matrix01[i][j]) > 1e-19) { std::cout << i << "5\t" << j << "\t" << matrix05[i][j] << "\t" << matrix01[i][j] << std::endl; }
+	//		if (std::fabs(matrix07[i][j] - matrix06[i][j]) > 1e-19) { std::cout << i << "7\t" << j << "\t" << matrix07[i][j] << "\t" << matrix06[i][j] << std::endl; }
+	//		if (std::fabs(matrix08[i][j] - matrix06[i][j]) > 1e-19) { std::cout << i << "8\t" << j << "\t" << matrix08[i][j] << "\t" << matrix06[i][j] << std::endl; }
+	//		if (std::fabs(matrix09[i][j] - matrix06[i][j]) > 1e-19) { std::cout << i << "9\t" << j << "\t" << matrix09[i][j] << "\t" << matrix06[i][j] << std::endl; }
+	//		if (std::fabs(matrix10[i][j] - matrix06[i][j]) > 1e-19) { std::cout << i << "10\t" << j << "\t" << matrix10[i][j] << "\t" << matrix06[i][j] << std::endl; }
+	//	}
+	//}
 
 	//const int NumBytes = N * N * sizeof(int);
 	////host allocations to create Adjancency matrix and result matrices with path matrices
@@ -809,9 +939,39 @@ int main()
 	//	H_Gpath[i] = D_Gpath[i] = -1;//set to all negative ones for use in path construction
 	//}
 
+	//std::string filename = "Philadelphia_trips - 副本.csv"; // Replace with your CSV file path
+	//Philadelphia_trips
+	//int num_demands = 1525; // Example value for num_demands
+	//int num_net_nodes = 13390;
+	//std::vector<std::vector<double>> data = readPHITripDataFromCSV(filename, num_demands);
+
+	std::string filename = "Winnipeg_trips - 副本.csv"; // Replace with your CSV file path
+	//Winnipeg_trips
+	int num_demands = 147; // Example value for num_demands
+	//int num_net_nodes = 1053;
+
+	std::vector<std::vector<double>> Winnipeg_trips_data = readWinTripDataFromCSV(filename, num_demands);
+
+	int zeros = 0;
+	int non_zeros = 0;
+	for (int i = 1; i < 2; ++i) {
+		for (int j = 0; j < num_demands + 1; ++j) {
+			// cout << i << " " << j << " " << data[i][j] << endl;
+			if (Winnipeg_trips_data[i][j] == 0) {
+				zeros++;
+			}
+			else {
+				non_zeros++;
+			}
+		}
+	}
+	cout << zeros << " " << non_zeros << endl;
 
 
+	//std::string file_path = "Philadelphia_net - 副本.csv"; // 请将文件路径替换为实际文件路径
+	std::string file_path = "Winnipeg_net - 副本.csv"; // 请将文件路径替换为实际文件路径
 
+	std::vector<Link> links = read_data(file_path);
 
 
 	cout << "the number of nodes (N): " << N << endl;
@@ -819,15 +979,14 @@ int main()
 	cout << "Initializing begin!" << endl;
 
 	Graph ReducedGraph(N);
-	ReducedGraph.generateRandomWeights();
-	//for (int i = 0; i < N; ++i) {
-	//	for (int j = 0; j < N; ++j) {
-	//		D_G[i * N + j] = ReducedGraph.adjMatrix[i][j]*1000;
-	//		//ReducedGraph.adjMatrix[i][j]=D_G[i * N + j];
-	//		cout << "ID\t " << i << "\t" << j << '\t'<< D_G[i * N + j] << '\n';
+	//ReducedGraph.generateRandomWeights();
+	// 
+	// 遍历 links 向量
+	for (const auto& link : links) {
+		ReducedGraph.adjMatrix[link.init_node][link.term_node] = link.free_flow_time;
+		//processLink(link);  // 处理当前 Link 对象
+	}
 
-	//	}
-	//}
 
 
 	if (writefile == 1) {
@@ -842,6 +1001,17 @@ int main()
 	//vector<vector<int>> ReducedNext_check = floydWarshall(ReducedGraph.adjMatrix, N);
 	vector<vector<int>> ReducedNext=_gpu_fw_apsp(ReducedGraph.adjMatrix, N);
 
+	//vector<vector<int>> ReducedNext1 = _gpu_fw_apsp(ReducedGraph.adjMatrix, N);
+	
+	
+
+	//for (int i = 0; i < N; ++i) {
+	//	for (int j = 0; j < N; ++j) {
+	//		//cout << i<<"\t" << j <<endl;
+	//		if (std::fabs(ReducedNext[i][j] - ReducedNext1[i][j]) > 1e-19) { std::cout << i << "\t" << j << "\t" << ReducedNext[i][j] << "\t" << ReducedNext[i][j] << std::endl; }
+	//		//cout << i << "\t" << j << "\t" << ReducedNext[i][j] << "\t" << ReducedNext[i][j] << std::endl;
+	//	}
+	//}
 
 	//for (int i = 0; i < N; ++i) {
 	//	for (int j = 0; j < N; ++j) {
@@ -858,24 +1028,33 @@ int main()
 
 
 
-
-
-
 	// 获取当前时间点
 	auto start_time = std::chrono::high_resolution_clock::now();
 
 
-	GraphResult ReducedResult(N, N, ReducedGraph.adjMatrix);
 
 	cout << "Initializing get ODPaths!" << endl;
 
-	//vector<vector<ODPaths>> ResultODPaths;
-	std::vector<std::vector<ODPaths>> ResultODPaths(N, std::vector<ODPaths>(N, ODPaths(3)));
+	//GraphResult ReducedResult(N, N, ReducedGraph.adjMatrix);
+	//std::vector<std::vector<ODPaths>> ResultODPaths(N, std::vector<ODPaths>(N, ODPaths(3)));
+
+	GraphResult ReducedResult(N, N, ReducedGraph.adjMatrix);
+	std::vector<std::vector<ODPaths>> ResultODPaths(N, std::vector<ODPaths>(N, ODPaths(0)));
+	for (int i = 0; i < num_demands; ++i) {
+		for (int j = 0; j < num_demands; ++j) {
+			ResultODPaths[i][j].demand = Winnipeg_trips_data[i][j];
+		}
+	}
+
+
+
+
+
 
 	cout << "Initializing all or nothing!" << endl;
 	//1 初始化
 	//1.1 初始化全有全无
-	computeAllOrNothing(ResultODPaths, ReducedNext, N);
+	computeAllOrNothing(ResultODPaths, ReducedNext, ReducedGraph.adjMatrix, N);
 
 	cout << "Initializing flow!" << endl;
 	//1.2 根据全有全无结果更新flow、bpr、diff_bpr
@@ -937,21 +1116,50 @@ int main()
 		//}
 		//vector<vector<int>> loopReducedNext = floydWarshall(ReducedResult.bpr, N);
 		vector<vector<int>> loopReducedNext = _gpu_fw_apsp(ReducedResult.bpr, N);
+		//vector<vector<int>> loopReducedNext = _gpu_fw_apsp(ReducedGraph.adjMatrix, N);
+
+
+
+
+
+
 		std::cout << "Iteration: " << current_iteration << " each OD " << std::endl;
-#pragma omp parallel for
+//#pragma omp parallel for
 				//2.1 对每个OD求解子问题
 		for (int i = 0; i < N; ++i) {
 			//if (i % 100 == 0) {
 			//	std::cout << "Main loop i: " << i << std::endl;
 			//}
+			//std::cout << "Main loop i: " << i << std::endl;
+
+			int remainder = (i+ current_iteration) % update_rate;
+			if (remainder != 0) { continue; }
+
 			for (int j = 0; j < N; ++j) { // 从 i+1 开始遍历，跳过索引值相同的情况
 				//if (j % 100 == 0) {
 				//	std::cout << "Main loop j: " << j << std::endl;
 				//}
+				//std::cout << "Main loop j: " << j << std::endl;
 				if (i != j) {
+					if (ResultODPaths[i][j].demand == 0) { continue; }
+					////根据概率决定是否更新
+					//std::random_device rd;
+					//// 使用随机设备生成引擎
+					//std::mt19937 gen(rd());
+					//// 定义 double 分布，范围为0到1
+					//std::uniform_real_distribution<double> dis(0.0, 1.0);
+
+					//// 生成随机 double 值并打印
+					//double random_double = dis(gen);
+					//if (random_double > update_rate) { continue; }
+
+
+
+
+
 					//2.1.1 列生成
 					//判断路径是否存在于 paths 中，不存在则添加到末尾
-					//if (i == 99 && j == 33) {
+					//if (i == 2 && j == 59) {
 					//	std::cout << "Iteration: " << current_iteration << " Adjustment " << i << "   " << j << "   " << std::endl;
 					//}
 
@@ -1053,14 +1261,41 @@ int main()
 			}
 		}
 
+#pragma omp parallel for
+		for (int i = 0; i < N; ++i) {
+			for (int j = 0; j < N; ++j) { // 从 i+1 开始遍历，跳过索引值相同的情况
+				if (i != j) {
+					if (ReducedResult.bpr[i][j] == 0.0f) { ReducedResult.bpr[i][j] = INF; }
+				}
+			}
+		}
 
 		double total_convergence = calculate_total_convergence(ResultODPaths, ReducedResult.bpr);
 		std::cout << std::fixed; // 设置固定的小数点表示
 		std::cout << std::setprecision(10); // 设置小数点后20位
 		std::cout << "total_convergence: " << total_convergence << std::endl;
+
+		//for (int i = 0; i < N; ++i) {
+		//	for (int j = 0; j < N; ++j) { // 从 i+1 开始遍历，跳过索引值相同的情况
+		//		if (ResultODPaths[i][j].demand==0) { continue; }
+		//		if (i != j) {
+		//			std::cout << "i : " << i<<" j "<<j<<" "<< ResultODPaths[i][j].demand << std::endl;
+		//			for (int k = 0; k < ResultODPaths[i][j].paths.size();++k) {
+		//				std::cout << "flow: " << ResultODPaths[i][j].flow[k] <<"  "<< ResultODPaths[i][j].path_bpr[k] << std::endl;
+		//			}
+
+		//		}
+		//	}
+		//}
+
 		if (total_convergence > 1 - ConvergenceAccuracy) { break; }
 		// 增加当前迭代次数
 		current_iteration++;
+
+
+
+
+
 
 
 
